@@ -28,7 +28,7 @@
 
 #### Вариант 1: PowerShell скрипт (Рекомендуется)
 ```powershell
-irm https://raw.githubusercontent.com/quickyyy/DiscordQuestAutoClaimer/refs/heads/master/Enable-DiscordDevTools.ps1 | iex
+irm https://raw.githubusercontent.com/quickyyy/DiscordQuestAutoClaimer/main/Enable-DiscordDevTools.ps1 | iex
 ```
 
 #### Вариант 2: Ручная установка

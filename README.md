@@ -27,7 +27,7 @@ A powerful automation tool for claiming Discord Quests automatically. This proje
 
 #### Option 1: PowerShell Script (Recommended)
 ```powershell
-irm https://raw.githubusercontent.com/quickyyy/DiscordQuestAutoClaimer/refs/heads/master/Enable-DiscordDevTools.ps1 | iex
+irm https://raw.githubusercontent.com/quickyyy/DiscordQuestAutoClaimer/main/Enable-DiscordDevTools.ps1 | iex
 ```
 
 #### Option 2: Manual

@@ -23,6 +23,8 @@
             this.statusElement = null;
             this.listContainer = null;
             this.isCollapsed = false;
+            this.isQuestRunning = false;
+            this.autoRun = false;
             this.render();
         }
 
@@ -50,7 +52,20 @@
             title.style.cssText = 'margin: 0; font-size: 16px; color: #fff; font-weight: 600;';
 
             const controls = document.createElement('div');
-            controls.style.cssText = 'display: flex; gap: 8px;';
+            controls.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+
+            const autoRunLabel = document.createElement('label');
+            autoRunLabel.style.cssText = 'display: flex; align-items: center; gap: 4px; font-size: 12px; color: #b5bac1; cursor: pointer; margin-right: 4px;';
+            
+            const autoRunCheckbox = document.createElement('input');
+            autoRunCheckbox.type = 'checkbox';
+            autoRunCheckbox.style.cssText = 'cursor: pointer;';
+            autoRunCheckbox.onchange = (e) => { this.autoRun = e.target.checked; };
+            
+            autoRunLabel.appendChild(autoRunCheckbox);
+            autoRunLabel.appendChild(document.createTextNode('Auto-run'));
+            
+            controls.appendChild(autoRunLabel);
 
             const collapseBtn = document.createElement('button');
             collapseBtn.textContent = '−';
@@ -88,6 +103,42 @@
 
             document.body.appendChild(container);
             this.element = container;
+            this.makeDraggable(container, header);
+        }
+
+        makeDraggable(element, handle) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            handle.style.cursor = 'move';
+            
+            handle.onmousedown = (e) => {
+                if (['BUTTON', 'INPUT', 'LABEL'].includes(e.target.tagName)) return;
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            };
+
+            const elementDrag = (e) => {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                
+                if (element.style.right) {
+                    element.style.left = element.offsetLeft + "px";
+                    element.style.right = 'auto';
+                }
+
+                element.style.top = (element.offsetTop - pos2) + "px";
+                element.style.left = (element.offsetLeft - pos1) + "px";
+            };
+
+            const closeDragElement = () => {
+                document.onmouseup = null;
+                document.onmousemove = null;
+            };
         }
 
         toggleCollapse(container, btn) {
@@ -114,10 +165,106 @@
             console.log(`[QuestClaimer] ${text}`);
         }
 
-        setQuests(quests, onStartQuest) {
-            this.listContainer.innerHTML = '';
+        createQuestRow(quest, onStartQuest) {
+            const row = document.createElement('div');
+            row.dataset.questId = quest.id;
+            row.style.cssText = `
+                display: flex; align-items: center; justify-content: space-between;
+                background: #313338; padding: 8px; border-radius: 4px;
+                border: 1px solid #1e1f22;
+            `;
+
+            const info = document.createElement('div');
+            info.style.cssText = 'flex: 1; min-width: 0; margin-right: 10px;';
             
+            const name = document.createElement('div');
+            name.textContent = quest.config.messages.questName;
+            name.style.cssText = 'font-weight: 500; color: #fff; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+            
+            const task = document.createElement('div');
+            const taskConfig = quest.config.taskConfig ?? quest.config.taskConfigV2;
+            const taskName = ["WATCH_VIDEO", "PLAY_ON_DESKTOP", "STREAM_ON_DESKTOP", "PLAY_ACTIVITY", "WATCH_VIDEO_ON_MOBILE"]
+                .find(x => taskConfig.tasks[x] != null);
+            task.textContent = taskName.replace(/_/g, ' ');
+            task.style.cssText = 'font-size: 11px; color: #b5bac1; margin-top: 2px;';
+
+            info.appendChild(name);
+            info.appendChild(task);
+
+            const btn = document.createElement('button');
+            btn.textContent = 'Start';
+            btn.style.cssText = `
+                background: #5865F2; color: white; border: none; 
+                padding: 6px 12px; border-radius: 3px; cursor: pointer;
+                font-size: 12px; font-weight: 500; transition: background 0.2s;
+                min-width: 60px;
+            `;
+
+            if (this.isQuestRunning) {
+                btn.disabled = true;
+                btn.style.opacity = 0.5;
+                btn.style.cursor = 'not-allowed';
+            }
+            
+            const progressBg = document.createElement('div');
+            progressBg.style.cssText = 'height: 4px; background: #1e1f22; margin-top: 6px; border-radius: 2px; overflow: hidden; display: none;';
+            const progressBar = document.createElement('div');
+            progressBar.style.cssText = 'height: 100%; width: 0%; background: #248046; transition: width 0.3s;';
+            progressBg.appendChild(progressBar);
+            
+            info.appendChild(progressBg);
+
+            btn.onclick = async () => {
+                if (this.isQuestRunning) return;
+                this.isQuestRunning = true;
+
+                const allBtns = this.listContainer.querySelectorAll('button');
+                allBtns.forEach(b => { b.disabled = true; b.style.opacity = 0.5; b.style.cursor = 'not-allowed'; });
+                
+                btn.textContent = 'Running...';
+                progressBg.style.display = 'block';
+                
+                try {
+                    await onStartQuest(quest, (percent, msg) => {
+                        progressBar.style.width = `${percent}%`;
+                        this.log(msg);
+                    });
+                    btn.textContent = 'Done';
+                    btn.style.background = '#248046';
+                } catch (e) {
+                    btn.textContent = 'Error';
+                    btn.style.background = '#da373c';
+                    this.log(e.message, 'error');
+                } finally {
+                    this.isQuestRunning = false;
+                    const currentBtns = this.listContainer.querySelectorAll('button');
+                    let nextBtn = null;
+
+                    currentBtns.forEach(b => { 
+                        if (b !== btn && b.textContent !== 'Done') {
+                            b.disabled = false; 
+                            b.style.opacity = 1; 
+                            b.style.cursor = 'pointer'; 
+                            if (!nextBtn && b.textContent === 'Start') {
+                                nextBtn = b;
+                            }
+                        }
+                    });
+
+                    if (this.autoRun && nextBtn) {
+                        setTimeout(() => nextBtn.click(), 1000);
+                    }
+                }
+            };
+
+            row.appendChild(info);
+            row.appendChild(btn);
+            return row;
+        }
+
+        setQuests(quests, onStartQuest) {
             if (quests.length === 0) {
+                this.listContainer.innerHTML = '';
                 const emptyMsg = document.createElement('div');
                 emptyMsg.textContent = 'No active quests found.';
                 emptyMsg.style.cssText = 'text-align: center; color: #949ba4; font-size: 13px; padding: 10px;';
@@ -125,80 +272,25 @@
                 return;
             }
 
-            quests.forEach((quest, index) => {
-                const row = document.createElement('div');
-                row.style.cssText = `
-                    display: flex; align-items: center; justify-content: space-between;
-                    background: #313338; padding: 8px; border-radius: 4px;
-                    border: 1px solid #1e1f22;
-                `;
+            if (this.listContainer.firstChild && !this.listContainer.firstChild.dataset?.questId) {
+                this.listContainer.innerHTML = '';
+            }
 
-                const info = document.createElement('div');
-                info.style.cssText = 'flex: 1; min-width: 0; margin-right: 10px;';
-                
-                const name = document.createElement('div');
-                name.textContent = quest.config.messages.questName;
-                name.style.cssText = 'font-weight: 500; color: #fff; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
-                
-                const task = document.createElement('div');
-                const taskConfig = quest.config.taskConfig ?? quest.config.taskConfigV2;
-                const taskName = ["WATCH_VIDEO", "PLAY_ON_DESKTOP", "STREAM_ON_DESKTOP", "PLAY_ACTIVITY", "WATCH_VIDEO_ON_MOBILE"]
-                    .find(x => taskConfig.tasks[x] != null);
-                task.textContent = taskName.replace(/_/g, ' ');
-                task.style.cssText = 'font-size: 11px; color: #b5bac1; margin-top: 2px;';
+            const existingRows = Array.from(this.listContainer.children);
+            const existingIds = existingRows.map(row => row.dataset.questId).filter(Boolean);
+            const newIds = quests.map(q => q.id);
 
-                info.appendChild(name);
-                info.appendChild(task);
+            existingRows.forEach(row => {
+                if (row.dataset.questId && !newIds.includes(row.dataset.questId)) {
+                    row.remove();
+                }
+            });
 
-                const btn = document.createElement('button');
-                btn.textContent = 'Start';
-                btn.style.cssText = `
-                    background: #5865F2; color: white; border: none; 
-                    padding: 6px 12px; border-radius: 3px; cursor: pointer;
-                    font-size: 12px; font-weight: 500; transition: background 0.2s;
-                    min-width: 60px;
-                `;
-                
-                const progressBg = document.createElement('div');
-                progressBg.style.cssText = 'height: 4px; background: #1e1f22; margin-top: 6px; border-radius: 2px; overflow: hidden; display: none;';
-                const progressBar = document.createElement('div');
-                progressBar.style.cssText = 'height: 100%; width: 0%; background: #248046; transition: width 0.3s;';
-                progressBg.appendChild(progressBar);
-                
-                info.appendChild(progressBg);
-
-                btn.onclick = async () => {
-                    const allBtns = this.listContainer.querySelectorAll('button');
-                    allBtns.forEach(b => { b.disabled = true; b.style.opacity = 0.5; b.style.cursor = 'not-allowed'; });
-                    
-                    btn.textContent = 'Running...';
-                    progressBg.style.display = 'block';
-                    
-                    try {
-                        await onStartQuest(quest, (percent, msg) => {
-                            progressBar.style.width = `${percent}%`;
-                            this.log(msg);
-                        });
-                        btn.textContent = 'Done';
-                        btn.style.background = '#248046';
-                    } catch (e) {
-                        btn.textContent = 'Error';
-                        btn.style.background = '#da373c';
-                        this.log(e.message, 'error');
-                    } finally {
-                        allBtns.forEach(b => { 
-                            if (b !== btn && b.textContent !== 'Done') {
-                                b.disabled = false; 
-                                b.style.opacity = 1; 
-                                b.style.cursor = 'pointer'; 
-                            }
-                        });
-                    }
-                };
-
-                row.appendChild(info);
-                row.appendChild(btn);
-                this.listContainer.appendChild(row);
+            quests.forEach(quest => {
+                if (!existingIds.includes(quest.id)) {
+                    const row = this.createQuestRow(quest, onStartQuest);
+                    this.listContainer.appendChild(row);
+                }
             });
         }
     }
@@ -513,6 +605,17 @@
             this.ui = ui;
             this.internals = new DiscordInternals();
             this.isApp = typeof DiscordNative !== "undefined";
+
+            const { QuestsStore } = this.internals.stores;
+            if (QuestsStore?.addChangeListener) {
+                QuestsStore.addChangeListener(() => this.updateQuests());
+            }
+        }
+
+        updateQuests() {
+            const quests = this.getEligibleQuests();
+            this.ui.log(`Updated quests: ${quests.length} found.`);
+            this.ui.setQuests(quests, (quest, onProgress) => this.runQuest(quest, onProgress));
         }
 
         getEligibleQuests() {
